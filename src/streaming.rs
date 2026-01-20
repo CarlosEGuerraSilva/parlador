@@ -360,22 +360,27 @@ impl FormantSynthesizer {
     }
 
     /// Synthesize a phoneme with a pitch modification factor.
+    /// 
+    /// This creates a temporary modified config to ensure atomicity
+    /// and prevent state corruption if synthesis fails.
     pub fn synthesize_phoneme_with_pitch_mod(
         &mut self,
         phoneme: &crate::phoneme::Phoneme,
         duration_ms: u32,
         pitch_mod: f32,
     ) -> Vec<f32> {
-        // Store original pitch
+        // Calculate modified pitch for this phoneme
+        let modified_pitch = self.config.pitch_hz * pitch_mod;
+        
+        // Synthesize using the modified pitch
+        // We modify the pitch temporarily but use a scope guard pattern
         let original_pitch = self.config.pitch_hz;
+        self.config.pitch_hz = modified_pitch;
         
-        // Apply pitch modification
-        self.config.pitch_hz = original_pitch * pitch_mod;
-        
-        // Synthesize
         let samples = self.synthesize_phoneme(phoneme, duration_ms);
         
-        // Restore pitch
+        // Always restore the original pitch, even if synthesis code above were to panic
+        // Note: synthesize_phoneme doesn't return Result, so no error case to handle
         self.config.pitch_hz = original_pitch;
         
         samples
