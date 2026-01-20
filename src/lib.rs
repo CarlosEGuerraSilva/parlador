@@ -1,0 +1,89 @@
+//! # Parlador
+//!
+//! Rust-powered multiplatform speech synthesizer engine with formant synthesis.
+//!
+//! Parlador is a custom speech synthesis library that uses formant synthesis
+//! to generate speech audio from text. It provides a high-level API for
+//! text-to-speech synthesis with support for English and Spanish, and is
+//! designed to be compatible with external TTS models like Kokoro through
+//! phoneme generation.
+//!
+//! ## Features
+//!
+//! - **Cross-platform**: Pure Rust implementation, works on Linux, macOS, and Windows
+//! - **No external dependencies**: Self-contained formant synthesis engine
+//! - **Multiple languages**: Support for English and Spanish
+//! - **Voice customization**: Adjust rate, pitch, volume, and voice variants
+//! - **Phoneme generation**: Compatible with TTS models like Kokoro
+//! - **Audio synthesis**: Get raw audio data (16-bit PCM) for further processing
+//! - **espeak-ng compatible API**: Easy migration from espeak-ng
+//!
+//! ## Quick Start
+//!
+//! ```
+//! use parlador::{Synthesizer, VoiceConfig, Language};
+//!
+//! // Create a synthesizer with default English voice
+//! let synth = Synthesizer::new()?;
+//!
+//! // Synthesize speech and get audio data
+//! let audio = synth.synthesize("Hello, world!")?;
+//! println!("Generated {} samples at {} Hz", audio.samples.len(), audio.sample_rate);
+//!
+//! // Create a synthesizer with Spanish voice
+//! let spanish_synth = Synthesizer::with_config(
+//!     VoiceConfig::new(Language::Spanish)
+//!         .with_rate(150)
+//!         .with_pitch(20)
+//! )?;
+//! let audio = spanish_synth.synthesize("¡Hola, mundo!")?;
+//! # Ok::<(), parlador::SynthesizerError>(())
+//! ```
+//!
+//! ## Phoneme Generation for TTS Models
+//!
+//! Parlador can generate phonemes for use with external TTS models:
+//!
+//! ```
+//! use parlador::{Synthesizer, PhonemeFormat};
+//!
+//! let synth = Synthesizer::new()?;
+//! let result = synth.text_to_phonemes("Hello, world!", PhonemeFormat::Ipa)?;
+//! println!("Phonemes: {}", result.phonemes);
+//! # Ok::<(), parlador::SynthesizerError>(())
+//! ```
+//!
+//! ## espeak-ng Compatible API
+//!
+//! For projects migrating from espeak-ng, a compatible API is provided:
+//!
+//! ```
+//! use parlador::{espeak_initialize, espeak_synth, espeak_text_to_phonemes, AudioOutputType};
+//!
+//! // Initialize (returns sample rate)
+//! let sample_rate = espeak_initialize(AudioOutputType::Retrieval, 500, None, 0)?;
+//!
+//! // Synthesize speech
+//! let audio = espeak_synth("Hello", "en")?;
+//!
+//! // Get phonemes
+//! let phonemes = espeak_text_to_phonemes("Hello", "en", true)?;
+//! # Ok::<(), parlador::SynthesizerError>(())
+//! ```
+
+mod error;
+mod formant;
+mod g2p;
+mod phoneme;
+mod synthesizer;
+mod voice;
+
+pub use error::{Result, SynthesizerError};
+pub use formant::{AudioOutput, SynthesisConfig, SAMPLE_RATE};
+pub use g2p::{text_to_ipa, G2PConverter};
+pub use phoneme::{FormantValues, Phoneme, PhonemeCategory, PhonemeInventory};
+pub use synthesizer::{
+    espeak_initialize, espeak_set_voice_by_name, espeak_synth, espeak_terminate,
+    espeak_text_to_phonemes, AudioOutputType, PhonemeFormat, PhonemeResult, Synthesizer,
+};
+pub use voice::{Language, VoiceConfig, VoiceVariant};
