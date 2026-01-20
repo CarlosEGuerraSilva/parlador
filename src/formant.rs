@@ -135,7 +135,8 @@ impl Resonator {
 
 /// Formant synthesizer engine.
 pub struct FormantSynthesizer {
-    config: SynthesisConfig,
+    /// Synthesis configuration.
+    pub config: SynthesisConfig,
     /// Formant resonators (F1, F2, F3).
     formants: [Resonator; 3],
     /// Nasal resonator.

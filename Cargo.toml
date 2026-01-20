@@ -23,3 +23,7 @@ path = "examples/speak.rs"
 [[example]]
 name = "phonemes"
 path = "examples/phonemes.rs"
+
+[[example]]
+name = "streaming"
+path = "examples/streaming.rs"
