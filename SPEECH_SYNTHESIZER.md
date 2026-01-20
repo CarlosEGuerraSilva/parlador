@@ -14,6 +14,17 @@ Parlador is a Rust-powered multiplatform speech synthesizer engine that uses for
   - [VoiceVariant](#voicevariant)
   - [PhonemeFormat](#phonemeformat)
   - [AudioOutput](#audiooutput)
+- [SSML Support](#ssml-support)
+  - [Supported Elements](#supported-elements)
+  - [Prosody Attributes](#prosody-attributes)
+  - [Break Strengths](#break-strengths)
+- [Real-time Streaming](#real-time-streaming)
+  - [StreamingSynthesizer](#streamingsynthesizer)
+  - [AudioChunk](#audiochunk)
+  - [Callback-based Streaming](#callback-based-streaming)
+- [Improved Prosody](#improved-prosody)
+  - [Sentence Type Detection](#sentence-type-detection)
+  - [Pitch Contours](#pitch-contours)
 - [espeak-ng Compatible API](#espeak-ng-compatible-api)
 - [Common Options](#common-options)
 - [Phoneme System](#phoneme-system)
@@ -34,6 +45,9 @@ Parlador is a Rust-powered multiplatform speech synthesizer engine that uses for
 - **Voice customization**: Adjust rate, pitch, volume, and voice variants
 - **Phoneme generation**: Compatible with TTS models like Kokoro
 - **Audio synthesis**: Get raw audio data (16-bit PCM) for further processing
+- **SSML support**: Parse and synthesize SSML documents for fine-grained control
+- **Real-time streaming**: Generate audio incrementally for low-latency applications
+- **Improved prosody**: Natural intonation patterns for different sentence types
 - **espeak-ng compatible API**: Easy migration from espeak-ng
 
 ## Installation
@@ -184,6 +198,193 @@ println!("Duration: {:.2}s", audio.duration_secs());
 | `samples` | `Vec<i16>` | Raw 16-bit signed PCM audio |
 | `sample_rate` | `u32` | Sample rate (22050 Hz) |
 | `channels` | `u16` | Number of channels (1 = mono) |
+
+## SSML Support
+
+Parlador supports SSML (Speech Synthesis Markup Language) for fine-grained control over speech synthesis.
+
+### Basic Usage
+
+```rust
+use parlador::Synthesizer;
+
+let synth = Synthesizer::new()?;
+let ssml = r#"<speak>
+    Hello <break time="500ms"/> world!
+    <prosody rate="fast" pitch="high">This is fast and high.</prosody>
+    <emphasis level="strong">Important!</emphasis>
+</speak>"#;
+let audio = synth.synthesize_ssml(ssml)?;
+```
+
+### Supported Elements
+
+| Element | Description | Attributes |
+|---------|-------------|------------|
+| `<speak>` | Root element | - |
+| `<break>` | Insert a pause | `time`, `strength` |
+| `<prosody>` | Modify rate, pitch, volume | `rate`, `pitch`, `volume`, `contour` |
+| `<emphasis>` | Apply emphasis | `level` |
+| `<p>` | Paragraph marker | - |
+| `<s>` | Sentence marker | - |
+| `<say-as>` | Interpretation hints | `interpret-as` |
+| `<sub>` | Pronunciation substitution | `alias` |
+| `<voice>` | Change voice | `name` |
+
+### Prosody Attributes
+
+**Rate values:**
+- Keywords: `x-slow`, `slow`, `medium`, `fast`, `x-fast`
+- Percentage: `150%`, `75%`
+- Multiplier: `1.5`, `0.75`
+
+**Pitch values:**
+- Keywords: `x-low`, `low`, `medium`, `high`, `x-high`
+- Percentage: `120%`, `80%`
+- Semitones: `+2st`, `-3st`
+
+**Volume values:**
+- Keywords: `silent`, `x-soft`, `soft`, `medium`, `loud`, `x-loud`
+- Percentage: `150%`, `50%`
+- Decibels: `+6dB`, `-3dB`
+
+### Break Strengths
+
+| Strength | Duration |
+|----------|----------|
+| `none` | 0 ms |
+| `x-weak` | 100 ms |
+| `weak` | 200 ms |
+| `medium` | 400 ms |
+| `strong` | 600 ms |
+| `x-strong` | 1000 ms |
+
+### Emphasis Levels
+
+| Level | Effect |
+|-------|--------|
+| `reduced` | Softer, de-emphasized |
+| `none` | No emphasis |
+| `moderate` | Slight emphasis |
+| `strong` | Strong emphasis with increased volume |
+
+## Real-time Streaming
+
+Parlador provides a streaming API for generating audio incrementally, ideal for low-latency applications.
+
+### StreamingSynthesizer
+
+```rust
+use parlador::{StreamingSynthesizer, StreamingConfig, VoiceConfig, Language};
+
+// Create with custom configuration
+let config = StreamingConfig::new()
+    .with_chunk_size(2048)      // Samples per chunk
+    .with_voice(VoiceConfig::new(Language::English))
+    .with_prosody(true);        // Enable prosody analysis
+
+let synth = StreamingSynthesizer::with_config(config);
+
+// Stream audio chunks
+for chunk in synth.synthesize_stream("Hello, world!")? {
+    // Process each chunk as it's generated
+    play_audio(&chunk.samples);
+    
+    if chunk.is_final {
+        println!("Synthesis complete!");
+    }
+}
+```
+
+### AudioChunk
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `samples` | `Vec<i16>` | Audio samples for this chunk |
+| `sample_rate` | `u32` | Sample rate (22050 Hz) |
+| `is_final` | `bool` | True if this is the last chunk |
+| `progress` | `f32` | Synthesis progress (0.0 to 1.0) |
+
+### Callback-based Streaming
+
+```rust
+let synth = StreamingSynthesizer::new();
+
+synth.synthesize_with_callback("Hello, world!", |chunk| {
+    // Process chunk
+    send_to_audio_device(&chunk.samples);
+    
+    // Return true to continue, false to stop
+    !user_requested_stop
+})?;
+```
+
+### Complete Synthesis
+
+For non-streaming use cases that still want the streaming synthesizer's configuration:
+
+```rust
+let synth = StreamingSynthesizer::new();
+let audio = synth.synthesize_complete("Hello, world!")?;
+// audio is a standard AudioOutput
+```
+
+## Improved Prosody
+
+Parlador automatically analyzes text to apply natural intonation patterns based on sentence type.
+
+### Sentence Type Detection
+
+The synthesizer detects sentence types and applies appropriate intonation:
+
+| Sentence Type | Detection | Intonation Pattern |
+|--------------|-----------|-------------------|
+| Statement | Ends with `.` | Falling pitch |
+| Yes/No Question | Ends with `?` | Rising pitch |
+| Wh-Question | `What/Who/How...?` | Falling-rising |
+| Exclamation | Ends with `!` | Emphasized |
+| Command | Imperative form | Flat with emphasis |
+
+### Pitch Contours
+
+| Contour | Description |
+|---------|-------------|
+| Flat | No pitch variation |
+| Rising | Gradual increase toward end |
+| Falling | Starts high, decreases toward end |
+| FallingRising | Falls mid-sentence, rises at end |
+| Emphasized | High start, strong variation |
+
+### Using Prosody Synthesis
+
+```rust
+use parlador::Synthesizer;
+
+let synth = Synthesizer::new()?;
+
+// Automatic prosody based on sentence type
+let audio = synth.synthesize_with_prosody("Hello. How are you? Great!")?;
+```
+
+### Manual Prosody Control
+
+```rust
+use parlador::{ProsodyConfig, PitchContour, PhraseAnalyzer};
+
+// Analyze text for prosodic segments
+let segments = PhraseAnalyzer::analyze("Hello. Are you there?");
+for segment in &segments {
+    println!("Text: {}", segment.text);
+    println!("Contour: {:?}", segment.prosody.contour);
+}
+
+// Create custom prosody configuration
+let prosody = ProsodyConfig::new()
+    .with_pitch(1.2)           // 20% higher pitch
+    .with_rate(0.9)            // 10% slower
+    .with_contour(PitchContour::Rising)
+    .with_emphasis(0.5);       // Moderate emphasis
+```
 
 ## espeak-ng Compatible API
 
@@ -462,6 +663,9 @@ parlador/
 | `phoneme` | Phoneme inventory with acoustic properties |
 | `g2p` | Text-to-phoneme conversion rules |
 | `formant` | Klatt-style formant synthesis |
+| `prosody` | Prosody and intonation control |
+| `ssml` | SSML parsing and processing |
+| `streaming` | Real-time audio streaming |
 | `synthesizer` | Main API and espeak-ng compatibility |
 
 ## Examples
@@ -483,6 +687,15 @@ cargo run --example phonemes
 cargo run --example phonemes -- "Hello"
 cargo run --example phonemes -- --format ascii "Hello"
 cargo run --example phonemes -- --language es "Hola"
+```
+
+### Real-time Streaming
+
+```bash
+cargo run --example streaming
+cargo run --example streaming -- "Custom text to stream"
+cargo run --example streaming -- --chunk-size 2048 "Larger chunks"
+cargo run --example streaming -- --output audio.raw "Save streamed output"
 ```
 
 ### Saving Audio to File
@@ -508,10 +721,10 @@ for sample in &audio.samples {
 
 The following features are planned for future releases:
 
-- [ ] Improved prosody and intonation
+- [x] Improved prosody and intonation
+- [x] SSML (Speech Synthesis Markup Language) support
+- [x] Real-time audio streaming
 - [ ] Additional languages (French, German, Portuguese)
-- [ ] SSML (Speech Synthesis Markup Language) support
-- [ ] Real-time audio streaming
 - [ ] WAV file output without external tools
 - [ ] Neural network-based G2P for better accuracy
 - [ ] Voice cloning support

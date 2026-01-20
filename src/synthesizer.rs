@@ -7,6 +7,8 @@ use crate::error::{Result, SynthesizerError};
 use crate::formant::{AudioOutput, FormantSynthesizer, SynthesisConfig, SAMPLE_RATE};
 use crate::g2p::{text_to_ipa, G2PConverter};
 use crate::phoneme::PhonemeInventory;
+use crate::prosody::{PhraseAnalyzer, ProsodyConfig};
+use crate::ssml::{SsmlParser, SynthesisSegment};
 use crate::voice::{Language, VoiceConfig};
 
 /// Phoneme output format for TTS model compatibility.
@@ -166,6 +168,127 @@ impl Synthesizer {
         let pcm_samples = formant_synth.to_pcm16(&float_samples);
 
         Ok(AudioOutput::new(pcm_samples, SAMPLE_RATE, 1))
+    }
+
+    /// Synthesizes speech from text with automatic prosody analysis.
+    ///
+    /// This method analyzes the text for sentence types (questions, statements,
+    /// exclamations) and applies appropriate intonation patterns.
+    ///
+    /// # Arguments
+    ///
+    /// * `text` - The text to synthesize.
+    ///
+    /// # Returns
+    ///
+    /// Audio data containing the synthesized speech with natural prosody.
+    pub fn synthesize_with_prosody(&self, text: &str) -> Result<AudioOutput> {
+        let segments = PhraseAnalyzer::analyze(text);
+        
+        if segments.is_empty() {
+            return self.synthesize(text);
+        }
+
+        let mut all_samples = Vec::new();
+        let inventory = self.get_inventory();
+        let g2p = self.get_g2p();
+
+        for segment in segments {
+            let phonemes = g2p.convert(&segment.text)?;
+            if phonemes.is_empty() {
+                continue;
+            }
+
+            let mut formant_synth = self.create_formant_synthesizer_with_prosody(&segment.prosody);
+            let float_samples = formant_synth.synthesize_phonemes(&phonemes, inventory)?;
+            all_samples.extend(formant_synth.to_pcm16(&float_samples));
+        }
+
+        Ok(AudioOutput::new(all_samples, SAMPLE_RATE, 1))
+    }
+
+    /// Creates a formant synthesizer with prosody settings.
+    fn create_formant_synthesizer_with_prosody(&self, prosody: &ProsodyConfig) -> FormantSynthesizer {
+        let synth_config = SynthesisConfig {
+            pitch_hz: self.config.effective_pitch_hz() * prosody.pitch_multiplier,
+            rate: self.config.rate_multiplier() * prosody.rate_multiplier,
+            volume: (self.config.volume_level() * prosody.volume_multiplier).min(1.0),
+            sample_rate: SAMPLE_RATE,
+        };
+        FormantSynthesizer::new(synth_config)
+    }
+
+    /// Synthesizes speech from an SSML document.
+    ///
+    /// SSML (Speech Synthesis Markup Language) allows fine-grained control
+    /// over speech synthesis, including pauses, prosody, and emphasis.
+    ///
+    /// # Supported SSML Elements
+    ///
+    /// - `<speak>` - Root element
+    /// - `<break>` - Insert a pause (`time` or `strength` attributes)
+    /// - `<prosody>` - Modify rate, pitch, or volume
+    /// - `<emphasis>` - Apply emphasis (`level` attribute)
+    /// - `<p>` / `<s>` - Paragraph and sentence markers
+    /// - `<say-as>` - Interpretation hints
+    /// - `<sub>` - Pronunciation substitution
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use parlador::Synthesizer;
+    ///
+    /// let synth = Synthesizer::new()?;
+    /// let ssml = r#"<speak>
+    ///     Hello <break time="500ms"/> world!
+    ///     <prosody rate="fast">This is spoken quickly.</prosody>
+    /// </speak>"#;
+    /// let audio = synth.synthesize_ssml(ssml)?;
+    /// # Ok::<(), parlador::SynthesizerError>(())
+    /// ```
+    pub fn synthesize_ssml(&self, ssml: &str) -> Result<AudioOutput> {
+        let doc = SsmlParser::parse(ssml)?;
+        let segments = doc.to_synthesis_segments();
+        
+        self.synthesize_segments(&segments)
+    }
+
+    /// Synthesizes a list of synthesis segments with their prosody settings.
+    fn synthesize_segments(&self, segments: &[SynthesisSegment]) -> Result<AudioOutput> {
+        if segments.is_empty() {
+            return Ok(AudioOutput::new(vec![], SAMPLE_RATE, 1));
+        }
+
+        let mut all_samples = Vec::new();
+        let inventory = self.get_inventory();
+        let g2p = self.get_g2p();
+
+        for segment in segments {
+            // Handle break markers
+            if segment.text.starts_with("__break_") && segment.text.ends_with("__") {
+                let duration_str = &segment.text[8..segment.text.len() - 2];
+                if let Ok(duration_ms) = duration_str.parse::<u32>() {
+                    let silence_samples = (duration_ms as f32 / 1000.0 * SAMPLE_RATE as f32) as usize;
+                    all_samples.extend(std::iter::repeat_n(0i16, silence_samples));
+                }
+                continue;
+            }
+
+            if segment.text.trim().is_empty() {
+                continue;
+            }
+
+            let phonemes = g2p.convert(&segment.text)?;
+            if phonemes.is_empty() {
+                continue;
+            }
+
+            let mut formant_synth = self.create_formant_synthesizer_with_prosody(&segment.prosody);
+            let float_samples = formant_synth.synthesize_phonemes(&phonemes, inventory)?;
+            all_samples.extend(formant_synth.to_pcm16(&float_samples));
+        }
+
+        Ok(AudioOutput::new(all_samples, SAMPLE_RATE, 1))
     }
 
     /// Converts text to phonemes without synthesizing audio.
@@ -391,5 +514,73 @@ mod tests {
         assert!(result.is_ok());
 
         espeak_terminate();
+    }
+
+    #[test]
+    fn test_synthesize_with_prosody() {
+        let synth = Synthesizer::new().unwrap();
+        
+        // Test with different sentence types
+        let audio = synth.synthesize_with_prosody("Hello world.");
+        assert!(audio.is_ok());
+        assert!(!audio.unwrap().is_empty());
+        
+        // Test question intonation
+        let audio = synth.synthesize_with_prosody("Are you there?");
+        assert!(audio.is_ok());
+        assert!(!audio.unwrap().is_empty());
+        
+        // Test exclamation
+        let audio = synth.synthesize_with_prosody("Wow!");
+        assert!(audio.is_ok());
+        assert!(!audio.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_synthesize_ssml_basic() {
+        let synth = Synthesizer::new().unwrap();
+        let ssml = "<speak>Hello world</speak>";
+        let audio = synth.synthesize_ssml(ssml);
+        assert!(audio.is_ok());
+        assert!(!audio.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_synthesize_ssml_with_break() {
+        let synth = Synthesizer::new().unwrap();
+        let ssml = r#"<speak>Hello<break time="500ms"/>world</speak>"#;
+        let audio = synth.synthesize_ssml(ssml);
+        assert!(audio.is_ok());
+        
+        let audio = audio.unwrap();
+        // Should have samples including silence for the break
+        assert!(!audio.is_empty());
+    }
+
+    #[test]
+    fn test_synthesize_ssml_with_prosody() {
+        let synth = Synthesizer::new().unwrap();
+        let ssml = r#"<speak><prosody rate="fast" pitch="high">Fast and high</prosody></speak>"#;
+        let audio = synth.synthesize_ssml(ssml);
+        assert!(audio.is_ok());
+        assert!(!audio.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_synthesize_ssml_with_emphasis() {
+        let synth = Synthesizer::new().unwrap();
+        let ssml = r#"<speak><emphasis level="strong">Important</emphasis> text</speak>"#;
+        let audio = synth.synthesize_ssml(ssml);
+        assert!(audio.is_ok());
+        assert!(!audio.unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_synthesize_ssml_plain_text_fallback() {
+        let synth = Synthesizer::new().unwrap();
+        // Non-SSML text should still work
+        let audio = synth.synthesize_ssml("Just plain text");
+        assert!(audio.is_ok());
+        assert!(!audio.unwrap().is_empty());
     }
 }

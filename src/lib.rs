@@ -17,6 +17,9 @@
 //! - **Phoneme generation**: Compatible with TTS models like Kokoro
 //! - **Audio synthesis**: Get raw audio data (16-bit PCM) for further processing
 //! - **espeak-ng compatible API**: Easy migration from espeak-ng
+//! - **SSML support**: Parse and synthesize SSML documents
+//! - **Real-time streaming**: Generate audio incrementally for low-latency applications
+//! - **Improved prosody**: Natural intonation patterns for different sentence types
 //!
 //! ## Quick Start
 //!
@@ -53,6 +56,39 @@
 //! # Ok::<(), parlador::SynthesizerError>(())
 //! ```
 //!
+//! ## SSML Support
+//!
+//! Synthesize speech from SSML documents for fine-grained control:
+//!
+//! ```
+//! use parlador::Synthesizer;
+//!
+//! let synth = Synthesizer::new()?;
+//! let ssml = r#"<speak>
+//!     Hello <break time="500ms"/> world!
+//!     <prosody rate="fast" pitch="high">This is fast and high.</prosody>
+//! </speak>"#;
+//! let audio = synth.synthesize_ssml(ssml)?;
+//! # Ok::<(), parlador::SynthesizerError>(())
+//! ```
+//!
+//! ## Real-time Streaming
+//!
+//! Generate audio incrementally for low-latency applications:
+//!
+//! ```
+//! use parlador::StreamingSynthesizer;
+//!
+//! let synth = StreamingSynthesizer::new();
+//! for chunk in synth.synthesize_stream("Hello, world!")? {
+//!     // Process each audio chunk as it's generated
+//!     println!("Got {} samples, progress: {:.1}%", 
+//!              chunk.samples.len(), 
+//!              chunk.progress * 100.0);
+//! }
+//! # Ok::<(), parlador::SynthesizerError>(())
+//! ```
+//!
 //! ## espeak-ng Compatible API
 //!
 //! For projects migrating from espeak-ng, a compatible API is provided:
@@ -75,6 +111,9 @@ mod error;
 mod formant;
 mod g2p;
 mod phoneme;
+mod prosody;
+mod ssml;
+mod streaming;
 mod synthesizer;
 mod voice;
 
@@ -82,6 +121,14 @@ pub use error::{Result, SynthesizerError};
 pub use formant::{AudioOutput, SynthesisConfig, SAMPLE_RATE};
 pub use g2p::{text_to_ipa, G2PConverter};
 pub use phoneme::{FormantValues, Phoneme, PhonemeCategory, PhonemeInventory};
+pub use prosody::{
+    PhraseAnalyzer, PhraseSegment, PitchContour, ProsodyConfig, SentenceType, StressLevel,
+};
+pub use ssml::{
+    BreakSpec, BreakStrength, EmphasisLevel, SsmlDocument, SsmlElement, SsmlParser,
+    SynthesisSegment,
+};
+pub use streaming::{AudioChunk, AudioStream, StreamingConfig, StreamingSynthesizer};
 pub use synthesizer::{
     espeak_initialize, espeak_set_voice_by_name, espeak_synth, espeak_terminate,
     espeak_text_to_phonemes, AudioOutputType, PhonemeFormat, PhonemeResult, Synthesizer,
