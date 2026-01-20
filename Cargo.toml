@@ -1,0 +1,25 @@
+[package]
+name = "parlador"
+version = "0.1.0"
+edition = "2021"
+description = "Rust-powered multiplatform speech synthesizer engine with formant synthesis"
+license = "MIT"
+repository = "https://github.com/CarlosEGuerraSilva/parlador"
+keywords = ["tts", "speech", "synthesizer", "formant", "audio"]
+categories = ["multimedia::audio"]
+
+[dependencies]
+thiserror = "1.0"
+
+[dev-dependencies]
+
+[features]
+default = []
+
+[[example]]
+name = "speak"
+path = "examples/speak.rs"
+
+[[example]]
+name = "phonemes"
+path = "examples/phonemes.rs"
