@@ -214,8 +214,14 @@ impl Synthesizer {
 }
 
 impl Default for Synthesizer {
+    /// Creates a default synthesizer with English language.
+    ///
+    /// # Panics
+    ///
+    /// This implementation should never panic as the synthesizer
+    /// initialization cannot fail with default parameters.
     fn default() -> Self {
-        Self::new().expect("Failed to create default synthesizer")
+        Self::new().expect("Default synthesizer initialization cannot fail")
     }
 }
 
